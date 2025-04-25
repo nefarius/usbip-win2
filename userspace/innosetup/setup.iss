@@ -56,9 +56,13 @@
 
 #define CLIENT_HWID "ROOT\USBIP_WIN2\UDE"
 
-#define CertFile "usbip.pfx"
-#define CertName "USBip"
-#define CertPwd "usbip"
+#define TEST_SIGN_MODE
+
+#ifdef TEST_SIGN_MODE
+  #define CertFile "usbip.pfx"
+  #define CertName "USBip"
+  #define CertPwd "usbip"
+#endif
 
 [Setup]
 AppName={#ProductName}
@@ -131,8 +135,11 @@ Source: {#BuildDir + "wusbip.exe"}; DestDir: "{app}"; Components: gui
 Source: {#BuildDir + "package\"}{#FilterDriver + ".inf"}; DestDir: "{app}"; Components: client
 
 Source: {#VCToolsRedistInstallDir}{#VCToolsRedistExe}; DestDir: "{tmp}"; Flags: nocompression; Components: main
-Source: {#SolutionDir + "drivers\package\"}{#CertFile}; DestDir: "{tmp}"; Components: main
 Source: {#BuildDir + "package\*"}; DestDir: "{tmp}"; Components: main
+
+#ifdef TEST_SIGN_MODE
+  Source: {#SolutionDir + "drivers\package\"}{#CertFile}; DestDir: "{tmp}"; Components: main
+#endif
 
 [Tasks]
 Name: vcredist; Description: "Install Microsoft Visual C++ &Redistributable(x64)"
@@ -142,7 +149,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Run]
 
 Filename: {tmp}\{#VCToolsRedistExe}; Parameters: "/quiet /norestart"; Tasks: vcredist
-Filename: {sys}\certutil.exe; Parameters: "-f -p ""{#CertPwd}"" -importPFX root ""{tmp}\{#CertFile}"" FriendlyName=""{#CertName}"""; Flags: runhidden
+
+#ifdef TEST_SIGN_MODE
+  Filename: {sys}\certutil.exe; Parameters: "-f -p ""{#CertPwd}"" -importPFX root ""{tmp}\{#CertFile}"" FriendlyName=""{#CertName}"""; Flags: runhidden
+#endif
 
 Filename: {cmd}; Parameters: "/c mklink classfilter.exe devnode.exe"; WorkingDir: "{app}"; Flags: runhidden; Components: client
 Filename: {app}\classfilter.exe; Parameters: "install {tmp}\{#FilterDriver}.inf DefaultInstall.NT{#CpuArch}"; Flags: runhidden; Components: client
@@ -160,7 +170,9 @@ Filename: {cmd}; Parameters: "/c FOR /f %P IN ('findstr /M /L /Q:u ""{#CLIENT_HW
 Filename: {app}\classfilter.exe; Parameters: "uninstall .\{#FilterDriver}.inf DefaultUninstall.NT{#CpuArch}"; Flags: runhidden
 Filename: {cmd}; Parameters: "/c del /F ""{app}\classfilter.exe"""; Flags: runhidden
 
-Filename: {sys}\certutil.exe; Parameters: "-f -delstore root ""{#CertName}"""; Flags: runhidden
+#ifdef TEST_SIGN_MODE
+  Filename: {sys}\certutil.exe; Parameters: "-f -delstore root ""{#CertName}"""; Flags: runhidden
+#endif
 
 [Code]
 
@@ -183,6 +195,19 @@ begin
    
   subkey := make_bcd_subkey_path(value, '16000049'); // AllowPrereleaseSignatures
   result := RegQueryBinaryValue(HKEY_LOCAL_MACHINE, subkey, name, binval) and (binval = #1)
+end;
+
+function check_test_sign_mode(): Boolean;
+begin
+#ifdef TEST_SIGN_MODE
+  result := IsTestSigningModeEnabled();
+  if not result then
+    MsgBox('To use USBip, enable test-signed drivers to load.' #13#13
+           'Run "Bcdedit.exe -set TESTSIGNING ON" as Administrator and reboot the PC.',
+            mbCriticalError, MB_OK);
+#else
+  result := true;
+#endif
 end;
 
 procedure InitializeWizard();
@@ -251,17 +276,12 @@ end;
 
 function InitializeSetup(): Boolean;
 begin
-  result := IsTestSigningModeEnabled();
-
+  result := check_test_sign_mode();
   if result then
   begin
     // Was task selected during a previous install?
     PathIsModified := GetPreviousData(MODIFY_PATH_TASK_NAME, '') = 'true';
-  end
-  else
-    MsgBox('To use USBip, enable test-signed drivers to load.' #13#13
-           'Run "Bcdedit.exe -set TESTSIGNING ON" as Administrator and reboot the PC.',
-            mbCriticalError, MB_OK);
+  end;
 end;
 
 function InitializeUninstall(): Boolean;
